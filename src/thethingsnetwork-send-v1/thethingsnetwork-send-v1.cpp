@@ -30,6 +30,19 @@
 #include <lmic.h>
 #include <hal.h>
 #include <local_hal.h>
+//header for the mosquitto broker
+#include <errno.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <string.h>
+#include <mosquitto.h>
+
+//mqtt broker configuration
+#define MQTT_HOSTNAME "localhost"
+#define MQTT_PORT 1883
+#define MQTT_USERNAME "admin"
+#define MQTT_PASSWORD "admin"
+#define MQTT_TOPIC "compress"
 
 // LoRaWAN Application identifier (AppEUI)
 // Not used in this example
@@ -73,6 +86,7 @@ void os_getDevKey (u1_t* buf) {
 u4_t cntr=0;
 u1_t mydata[] = {"Hello, world!                               "};
 static osjob_t sendjob;
+char* payload = {"\0"}
 
 // Pin mapping
 lmic_pinmap pins = {
@@ -111,7 +125,7 @@ static void do_send(osjob_t* j){
     } else {
       // Prepare upstream data transmission at the next possible time.
       char buf[100];
-      sprintf(buf, "Hello world! [%d]", cntr++);
+      sprintf(buf, payload, cntr++);
       int i=0;
       while(buf[i]) {
         mydata[i]=buf[i];
@@ -158,13 +172,50 @@ while(1) {
   }
 }
 
+//functions for the mqtt data
+void my_message_callback(struct mosquitto *mosq, void *obj,
+		const struct mosquitto_message *message) {
+	payload = (char *)message -> payload;
+}
+
 
 int main() {
-  setup();
+  //set up the subscription to the mqtt broker
+	struct mosquitto *mosq = NULL;
+	
+	mosquitto_lib_init();
+	
+	mos = mosquitto_new(NULL, true, NULL);
+	if(!mosq){
+		fprintf(stderr, "Can't init mosquitto library\n");
+		exit(-1);
+	}
+	
+	mosquitto_username_pw_set(mosq, MQTT_USERNAME, MQTT_PASSWORD);
+	
+	int ret = mosquitto_connect(mosq, MQTT_HOSTNAME, MQTT_PORT, 0);
+	if (ret) {
+		fprintf(stderr, "Can't connect to mosquitto server\n");
+		exit(-1);
+	}
 
+	ret = mosquitto_subscribe(mosq, NULL, MQTT_TOPIC, 0);
+	if(ret) {
+		fprintf(stderr, "Can't subscribe to mosquitto server\n");
+		exit(-1);
+	}
+
+	mosquitto_message_callback_set(mosq, my_message_callback);
+
+
+	setup();
+
+	mosquitto_loop_forever(mosq, -1, 1);
   while (1) {
     loop();
   }
+
+
   return 0;
 }
 
